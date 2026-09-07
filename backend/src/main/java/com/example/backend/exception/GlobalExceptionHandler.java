@@ -14,29 +14,14 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-
-import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<Map<String, Object>> handleMalformedJson(HttpMessageNotReadableException ex) {
-        log.warn("Malformed JSON request body", ex);
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now().toString());
-        response.put("status", HttpStatus.BAD_REQUEST.value());
-        response.put("error", "Bad Request");
-        response.put("message", "Malformed JSON request");
-
-        return ResponseEntity.badRequest().body(response);
-    }
-
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {
         Map<String, String> fieldErrors = new HashMap<>();
@@ -89,6 +74,14 @@ public class GlobalExceptionHandler {
                 .body(buildErrorResponse(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid credentials"));
     }
 
+    @ExceptionHandler(UnauthorizedAccessException.class)
+    public ResponseEntity<Map<String, Object>> handleUnauthorizedAccess(UnauthorizedAccessException ex) {
+        log.warn("Unauthorized access: {}", ex.getMessage());
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(buildErrorResponse(HttpStatus.FORBIDDEN, "Forbidden", ex.getMessage()));
+    }
+
     @ExceptionHandler(UsernameNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleUserNotFound(UsernameNotFoundException ex) {
         log.warn("User not found: {}", ex.getMessage());
@@ -126,21 +119,27 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<?> handleMissingParameter(MissingServletRequestParameterException ex) {
+    public ResponseEntity<?> handleMissingParameter(
+            MissingServletRequestParameterException ex) {
+
         return ResponseEntity
                 .badRequest()
                 .body("Missing required parameter: " + ex.getParameterName());
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<?> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+    public ResponseEntity<?> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex) {
+
         return ResponseEntity
                 .badRequest()
                 .body("Invalid parameter: " + ex.getName());
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<?> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+    public ResponseEntity<?> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex) {
+
         return ResponseEntity
                 .status(HttpStatus.METHOD_NOT_ALLOWED)
                 .body("HTTP method not supported: " + ex.getMethod());

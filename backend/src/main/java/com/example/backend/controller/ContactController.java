@@ -34,11 +34,12 @@ public class ContactController {
             Authentication authentication) {
 
         Long userId = getCurrentUserId(authentication);
-        String userEmail = authentication.getName();
-        log.info("GET /api/contacts requested by user '{}' (search='{}', page={}, size={})",
-                userEmail, search, page, size);
+        log.info("GET /api/contacts requested by userId={} (page={}, size={})",
+                userId, page, size);
 
-        Page<ContactResponseDto> contacts = contactService.getAllContacts(userId, search, page, size, sortBy, sortDir);
+        Page<ContactResponseDto> contacts =
+                contactService.getAllContacts(userId, search, page, size, sortBy, sortDir);
+
         return ResponseEntity.ok(contacts);
     }
 
@@ -48,8 +49,7 @@ public class ContactController {
             Authentication authentication) {
 
         Long userId = getCurrentUserId(authentication);
-        String userEmail = authentication.getName();
-        log.info("GET /api/contacts/{} requested by user '{}'", id, userEmail);
+        log.info("GET /api/contacts/{} requested by userId={}", id, userId);
 
         ContactResponseDto contact = contactService.getContactById(userId, id);
         return ResponseEntity.ok(contact);
@@ -61,8 +61,7 @@ public class ContactController {
             Authentication authentication) {
 
         Long userId = getCurrentUserId(authentication);
-        String userEmail = authentication.getName();
-        log.info("POST /api/contacts requested by user '{}'", userEmail);
+        log.info("POST /api/contacts requested by userId={}", userId);
 
         ContactResponseDto created = contactService.createContact(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -75,8 +74,7 @@ public class ContactController {
             Authentication authentication) {
 
         Long userId = getCurrentUserId(authentication);
-        String userEmail = authentication.getName();
-        log.info("PUT /api/contacts/{} requested by user '{}'", id, userEmail);
+        log.info("PUT /api/contacts/{} requested by userId={}", id, userId);
 
         ContactResponseDto updated = contactService.updateContact(userId, id, request);
         return ResponseEntity.ok(updated);
@@ -88,22 +86,26 @@ public class ContactController {
             Authentication authentication) {
 
         Long userId = getCurrentUserId(authentication);
-        String userEmail = authentication.getName();
-        log.info("DELETE /api/contacts/{} requested by user '{}'", id, userEmail);
+        log.info("DELETE /api/contacts/{} requested by userId={}", id, userId);
 
         contactService.deleteContact(userId, id);
         return ResponseEntity.noContent().build();
     }
 
     private Long getCurrentUserId(Authentication authentication) {
-        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || "anonymousUser".equals(authentication.getPrincipal())) {
+
             throw new UnauthorizedException("Authentication is required");
         }
 
         String email = authentication.getName();
+
         User user = userRepository.findByEmailIgnoreCase(email)
-                .orElseThrow(() -> new UnauthorizedException("Authentication is required"));
+                .orElseThrow(() ->
+                        new UnauthorizedException("Authentication is required"));
+
         return user.getId();
     }
 }
-

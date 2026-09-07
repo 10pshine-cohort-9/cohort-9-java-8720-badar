@@ -1,6 +1,9 @@
 package com.example.backend.service;
 
-import com.example.backend.dto.*;
+import com.example.backend.dto.ContactRequestDto;
+import com.example.backend.dto.ContactResponseDto;
+import com.example.backend.dto.EmailDto;
+import com.example.backend.dto.PhoneDto;
 import com.example.backend.entity.Contact;
 import com.example.backend.entity.Email;
 import com.example.backend.entity.Phone;
@@ -20,6 +23,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -33,20 +37,34 @@ public class ContactServiceImpl implements ContactService {
     private final PhoneRepository phoneRepository;
     private final UserRepository userRepository;
 
+    private static final List<String> ALLOWED_SORT_FIELDS = List.of("id", "firstName", "lastName", "title");
+
     @Override
     @Transactional(readOnly = true)
     public Page<ContactResponseDto> getAllContacts(Long userId, String search, int page, int size, String sortBy, String sortDir) {
-        log.info("Fetching contacts for user: {} with search='{}', page={}, size={}, sortBy={}, sortDir={}", userId, search, page, size, sortBy, sortDir);
+        if (page < 0) {
+            throw new IllegalArgumentException("Page index must be >= 0");
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("Page size must be greater than 0");
+        }
 
-        String sortField = (sortBy == null || sortBy.isBlank()) ? "firstName" : sortBy;
+        String normalizedSortField = (sortBy == null || sortBy.isBlank()) ? "firstName" : sortBy;
+        if (!ALLOWED_SORT_FIELDS.contains(normalizedSortField)) {
+            throw new IllegalArgumentException("Invalid sort field. Allowed values: id, firstName, lastName, title");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
         Sort.Direction direction = "desc".equalsIgnoreCase(sortDir) ? Sort.Direction.DESC : Sort.Direction.ASC;
-        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortField));
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, normalizedSortField));
 
         Page<Contact> contacts;
-        if (search != null && !search.trim().isEmpty()) {
-            contacts = contactRepository.searchContacts(userId, search.trim(), pageable);
+        if (search != null && !search.isBlank()) {
+            contacts = contactRepository.searchContacts(user.getId(), search.trim(), pageable);
         } else {
-            contacts = contactRepository.findByUserId(userId, pageable);
+            contacts = contactRepository.findByUserId(user.getId(), pageable);
         }
 
         return contacts.map(this::convertToResponseDto);
@@ -55,26 +73,20 @@ public class ContactServiceImpl implements ContactService {
     @Override
     @Transactional(readOnly = true)
     public Page<ContactResponseDto> getContactsByUser(Long userId, Pageable pageable) {
-        log.info("Fetching paginated contacts for user: {}", userId);
-        
-        Page<Contact> contacts = contactRepository.findByUserId(userId, pageable);
-        return contacts.map(this::convertToResponseDto);
+        return contactRepository.findByUserId(userId, pageable).map(this::convertToResponseDto);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ContactResponseDto> searchContacts(Long userId, String searchTerm, Pageable pageable) {
-        log.info("Searching contacts for user: {} with term: {}", userId, searchTerm);
-        
-        Page<Contact> contacts = contactRepository.searchContacts(userId, searchTerm, pageable);
-        return contacts.map(this::convertToResponseDto);
+        return contactRepository.searchContacts(userId, searchTerm, pageable).map(this::convertToResponseDto);
     }
 
     @Override
     @Transactional
     public ContactResponseDto createContact(Long userId, ContactRequestDto contactRequestDto) {
         log.info("Creating new contact for user: {}", userId);
-        
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> {
                     log.error("User not found: {}", userId);
@@ -86,39 +98,21 @@ public class ContactServiceImpl implements ContactService {
         contact.setLastName(contactRequestDto.getLastName());
         contact.setTitle(contactRequestDto.getTitle());
         contact.setUser(user);
+        contact.setEmails(new ArrayList<>());
+        contact.setPhones(new ArrayList<>());
+
+        applyEmails(contact, contactRequestDto.getEmails());
+        applyPhones(contact, contactRequestDto.getPhones());
 
         Contact savedContact = contactRepository.save(contact);
+        if (savedContact.getEmails() != null && !savedContact.getEmails().isEmpty()) {
+            savedContact.setEmails(emailRepository.saveAll(savedContact.getEmails()));
+        }
+        if (savedContact.getPhones() != null && !savedContact.getPhones().isEmpty()) {
+            savedContact.setPhones(phoneRepository.saveAll(savedContact.getPhones()));
+        }
+
         log.info("Contact created successfully with id: {}", savedContact.getId());
-
-        // Add emails if provided
-        if (contactRequestDto.getEmails() != null && !contactRequestDto.getEmails().isEmpty()) {
-            List<Email> emails = contactRequestDto.getEmails().stream()
-                    .map(emailDto -> {
-                        Email email = new Email();
-                        email.setEmail(emailDto.getEmail());
-                        email.setLabel(emailDto.getLabel());
-                        email.setContact(savedContact);
-                        return email;
-                    })
-                    .collect(Collectors.toList());
-            emailRepository.saveAll(emails);
-            savedContact.setEmails(emails);
-        }
-
-        if (contactRequestDto.getPhones() != null && !contactRequestDto.getPhones().isEmpty()) {
-            List<Phone> phones = contactRequestDto.getPhones().stream()
-                    .map(phoneDto -> {
-                        Phone phone = new Phone();
-                        phone.setNumber(phoneDto.getNumber());
-                        phone.setLabel(phoneDto.getLabel());
-                        phone.setContact(savedContact);
-                        return phone;
-                    })
-                    .collect(Collectors.toList());
-            phoneRepository.saveAll(phones);
-            savedContact.setPhones(phones);
-        }
-
         return convertToResponseDto(savedContact);
     }
 
@@ -126,7 +120,7 @@ public class ContactServiceImpl implements ContactService {
     @Transactional
     public ContactResponseDto updateContact(Long userId, Long contactId, ContactRequestDto contactRequestDto) {
         log.info("Updating contact: {} for user: {}", contactId, userId);
-        
+
         Contact contact = contactRepository.findByIdAndUserId(contactId, userId)
                 .orElseThrow(() -> {
                     log.error("Contact not found or unauthorized access: {} for user: {}", contactId, userId);
@@ -138,43 +132,31 @@ public class ContactServiceImpl implements ContactService {
         contact.setTitle(contactRequestDto.getTitle());
 
         if (contactRequestDto.getEmails() != null) {
-            if (contact.getEmails() != null && !contact.getEmails().isEmpty()) {
+            if (contact.getEmails() != null) {
                 emailRepository.deleteAll(contact.getEmails());
+                contact.setEmails(new ArrayList<>(contact.getEmails()));
+                contact.getEmails().clear();
             }
-
-            List<Email> emails = contactRequestDto.getEmails().stream()
-                    .map(emailDto -> {
-                        Email email = new Email();
-                        email.setEmail(emailDto.getEmail());
-                        email.setLabel(emailDto.getLabel());
-                        email.setContact(contact);
-                        return email;
-                    })
-                    .collect(Collectors.toList());
-
-            contact.setEmails(emailRepository.saveAll(emails));
+            applyEmails(contact, contactRequestDto.getEmails());
+            if (contact.getEmails() != null && !contact.getEmails().isEmpty()) {
+                contact.setEmails(emailRepository.saveAll(contact.getEmails()));
+            }
         }
 
         if (contactRequestDto.getPhones() != null) {
-            if (contact.getPhones() != null && !contact.getPhones().isEmpty()) {
+            if (contact.getPhones() != null) {
                 phoneRepository.deleteAll(contact.getPhones());
+                contact.setPhones(new ArrayList<>(contact.getPhones()));
+                contact.getPhones().clear();
             }
-
-            List<Phone> phones = contactRequestDto.getPhones().stream()
-                    .map(phoneDto -> {
-                        Phone phone = new Phone();
-                        phone.setNumber(phoneDto.getNumber());
-                        phone.setLabel(phoneDto.getLabel());
-                        phone.setContact(contact);
-                        return phone;
-                    })
-                    .collect(Collectors.toList());
-            contact.setPhones(phoneRepository.saveAll(phones));
+            applyPhones(contact, contactRequestDto.getPhones());
+            if (contact.getPhones() != null && !contact.getPhones().isEmpty()) {
+                contact.setPhones(phoneRepository.saveAll(contact.getPhones()));
+            }
         }
 
         Contact updatedContact = contactRepository.save(contact);
         log.info("Contact updated successfully: {}", contactId);
-        
         return convertToResponseDto(updatedContact);
     }
 
@@ -182,7 +164,7 @@ public class ContactServiceImpl implements ContactService {
     @Transactional
     public void deleteContact(Long userId, Long contactId) {
         log.info("Deleting contact: {} for user: {}", contactId, userId);
-        
+
         Contact contact = contactRepository.findByIdAndUserId(contactId, userId)
                 .orElseThrow(() -> {
                     log.error("Contact not found or unauthorized access: {} for user: {}", contactId, userId);
@@ -197,7 +179,7 @@ public class ContactServiceImpl implements ContactService {
     @Transactional(readOnly = true)
     public ContactResponseDto getContactById(Long userId, Long contactId) {
         log.info("Fetching contact: {} for user: {}", contactId, userId);
-        
+
         Contact contact = contactRepository.findByIdAndUserId(contactId, userId)
                 .orElseThrow(() -> {
                     log.error("Contact not found or unauthorized access: {} for user: {}", contactId, userId);
@@ -205,6 +187,40 @@ public class ContactServiceImpl implements ContactService {
                 });
 
         return convertToResponseDto(contact);
+    }
+
+    private void applyEmails(Contact contact, List<EmailDto> emailDtos) {
+        if (emailDtos == null) {
+            return;
+        }
+        if (contact.getEmails() == null) {
+            contact.setEmails(new ArrayList<>());
+        }
+
+        for (EmailDto emailDto : emailDtos) {
+            Email email = new Email();
+            email.setEmail(emailDto.getEmail());
+            email.setLabel(emailDto.getLabel());
+            email.setContact(contact);
+            contact.getEmails().add(email);
+        }
+    }
+
+    private void applyPhones(Contact contact, List<PhoneDto> phoneDtos) {
+        if (phoneDtos == null) {
+            return;
+        }
+        if (contact.getPhones() == null) {
+            contact.setPhones(new ArrayList<>());
+        }
+
+        for (PhoneDto phoneDto : phoneDtos) {
+            Phone phone = new Phone();
+            phone.setNumber(phoneDto.getNumber());
+            phone.setLabel(phoneDto.getLabel());
+            phone.setContact(contact);
+            contact.getPhones().add(phone);
+        }
     }
 
     private ContactResponseDto convertToResponseDto(Contact contact) {
@@ -220,14 +236,19 @@ public class ContactServiceImpl implements ContactService {
             dto.setEmails(contact.getEmails().stream()
                     .map(email -> new EmailDto(email.getId(), email.getEmail(), email.getLabel()))
                     .collect(Collectors.toList()));
+        } else {
+            dto.setEmails(null);
         }
 
         if (contact.getPhones() != null) {
             dto.setPhones(contact.getPhones().stream()
                     .map(phone -> new PhoneDto(phone.getId(), phone.getNumber(), phone.getLabel()))
                     .collect(Collectors.toList()));
+        } else {
+            dto.setPhones(null);
         }
 
         return dto;
     }
 }
+

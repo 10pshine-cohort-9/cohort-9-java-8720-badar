@@ -77,7 +77,7 @@ class AuthServiceTest {
     @DisplayName("Should successfully register a new user with BCrypt hashed password")
     void testRegisterSuccess() {
         // Arrange
-        when(userRepository.existsByEmailIgnoreCase(registerRequest.getEmail())).thenReturn(false);
+        when(userRepository.existsByEmail(registerRequest.getEmail())).thenReturn(false);
         when(userRepository.existsByPhone(registerRequest.getPhone())).thenReturn(false);
         when(passwordEncoder.encode(registerRequest.getPassword())).thenReturn("hashedPassword");
         when(userRepository.save(any(User.class))).thenReturn(user);
@@ -95,7 +95,7 @@ class AuthServiceTest {
         assertEquals("john.doe@example.com", response.getEmail());
 
         // Verify
-        verify(userRepository).existsByEmailIgnoreCase(registerRequest.getEmail());
+        verify(userRepository).existsByEmail(registerRequest.getEmail());
         verify(userRepository).existsByPhone(registerRequest.getPhone());
         verify(passwordEncoder).encode(registerRequest.getPassword());
         verify(userRepository).save(any(User.class));
@@ -106,7 +106,7 @@ class AuthServiceTest {
     @DisplayName("Should throw DuplicateResourceException when email already exists")
     void testRegisterFailureEmailExists() {
         // Arrange
-        when(userRepository.existsByEmailIgnoreCase(registerRequest.getEmail())).thenReturn(true);
+        when(userRepository.existsByEmail(registerRequest.getEmail())).thenReturn(true);
 
         // Act & Assert
         DuplicateResourceException exception = assertThrows(
@@ -117,7 +117,7 @@ class AuthServiceTest {
         assertEquals("Email is already registered", exception.getMessage());
 
         // Verify
-        verify(userRepository).existsByEmailIgnoreCase(registerRequest.getEmail());
+        verify(userRepository).existsByEmail(registerRequest.getEmail());
         verify(userRepository, never()).existsByPhone(anyString());
         verify(userRepository, never()).save(any(User.class));
         verify(jwtTokenProvider, never()).generateToken(anyString());
@@ -127,7 +127,7 @@ class AuthServiceTest {
     @DisplayName("Should throw DuplicateResourceException when phone number already exists")
     void testRegisterFailurePhoneExists() {
         // Arrange
-        when(userRepository.existsByEmailIgnoreCase(registerRequest.getEmail())).thenReturn(false);
+        when(userRepository.existsByEmail(registerRequest.getEmail())).thenReturn(false);
         when(userRepository.existsByPhone(registerRequest.getPhone())).thenReturn(true);
 
         // Act & Assert
@@ -139,7 +139,7 @@ class AuthServiceTest {
         assertEquals("Phone number is already registered", exception.getMessage());
 
         // Verify
-        verify(userRepository).existsByEmailIgnoreCase(registerRequest.getEmail());
+        verify(userRepository).existsByEmail(registerRequest.getEmail());
         verify(userRepository).existsByPhone(registerRequest.getPhone());
         verify(userRepository, never()).save(any(User.class));
         verify(jwtTokenProvider, never()).generateToken(anyString());
@@ -150,7 +150,7 @@ class AuthServiceTest {
     void testRegisterSuccessWithoutPhone() {
         // Arrange
         registerRequest.setPhone("");
-        when(userRepository.existsByEmailIgnoreCase(registerRequest.getEmail())).thenReturn(false);
+        when(userRepository.existsByEmail(registerRequest.getEmail())).thenReturn(false);
         when(passwordEncoder.encode(registerRequest.getPassword())).thenReturn("hashedPassword");
         when(userRepository.save(any(User.class))).thenReturn(user);
         when(jwtTokenProvider.generateToken(user.getEmail())).thenReturn("jwt.token.here");
@@ -163,7 +163,7 @@ class AuthServiceTest {
         assertEquals("jwt.token.here", response.getToken());
 
         // Verify phone was never checked when blank
-        verify(userRepository).existsByEmailIgnoreCase(registerRequest.getEmail());
+        verify(userRepository).existsByEmail(registerRequest.getEmail());
         verify(userRepository, never()).existsByPhone(anyString());
         verify(userRepository).save(any(User.class));
     }
@@ -174,7 +174,7 @@ class AuthServiceTest {
     @DisplayName("Should successfully login with correct email and password")
     void testLoginSuccessByEmail() {
         // Arrange
-        when(userRepository.findByEmailIgnoreCase(loginRequest.getIdentifier())).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail(loginRequest.getIdentifier())).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())).thenReturn(true);
         when(jwtTokenProvider.generateToken(user.getEmail())).thenReturn("jwt.token.here");
 
@@ -190,7 +190,7 @@ class AuthServiceTest {
         assertEquals("john.doe@example.com", response.getEmail());
 
         // Verify
-        verify(userRepository).findByEmailIgnoreCase(loginRequest.getIdentifier());
+        verify(userRepository).findByEmail(loginRequest.getIdentifier());
         verify(passwordEncoder).matches(loginRequest.getPassword(), user.getPassword());
         verify(jwtTokenProvider).generateToken(user.getEmail());
     }
@@ -200,7 +200,7 @@ class AuthServiceTest {
     void testLoginSuccessByPhone() {
         // Arrange
         loginRequest.setIdentifier("+1234567890");
-        when(userRepository.findByEmailIgnoreCase(loginRequest.getIdentifier())).thenReturn(Optional.empty());
+        when(userRepository.findByEmail(loginRequest.getIdentifier())).thenReturn(Optional.empty());
         when(userRepository.findByPhone(loginRequest.getIdentifier())).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())).thenReturn(true);
         when(jwtTokenProvider.generateToken(user.getEmail())).thenReturn("jwt.token.here");
@@ -214,7 +214,7 @@ class AuthServiceTest {
         assertEquals(1L, response.getId());
 
         // Verify
-        verify(userRepository).findByEmailIgnoreCase(loginRequest.getIdentifier());
+        verify(userRepository).findByEmail(loginRequest.getIdentifier());
         verify(userRepository).findByPhone(loginRequest.getIdentifier());
         verify(passwordEncoder).matches(loginRequest.getPassword(), user.getPassword());
     }
@@ -223,7 +223,7 @@ class AuthServiceTest {
     @DisplayName("Should throw UnauthorizedException when user not found")
     void testLoginFailureUserNotFound() {
         // Arrange
-        when(userRepository.findByEmailIgnoreCase(loginRequest.getIdentifier())).thenReturn(Optional.empty());
+        when(userRepository.findByEmail(loginRequest.getIdentifier())).thenReturn(Optional.empty());
         when(userRepository.findByPhone(loginRequest.getIdentifier())).thenReturn(Optional.empty());
 
         // Act & Assert
@@ -235,7 +235,7 @@ class AuthServiceTest {
         assertEquals("Invalid credentials", exception.getMessage());
 
         // Verify
-        verify(userRepository).findByEmailIgnoreCase(loginRequest.getIdentifier());
+        verify(userRepository).findByEmail(loginRequest.getIdentifier());
         verify(userRepository).findByPhone(loginRequest.getIdentifier());
         verify(passwordEncoder, never()).matches(anyString(), anyString());
         verify(jwtTokenProvider, never()).generateToken(anyString());
@@ -245,7 +245,7 @@ class AuthServiceTest {
     @DisplayName("Should throw UnauthorizedException when password is incorrect")
     void testLoginFailureIncorrectPassword() {
         // Arrange
-        when(userRepository.findByEmailIgnoreCase(loginRequest.getIdentifier())).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail(loginRequest.getIdentifier())).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())).thenReturn(false);
 
         // Act & Assert
@@ -257,7 +257,7 @@ class AuthServiceTest {
         assertEquals("Invalid credentials", exception.getMessage());
 
         // Verify
-        verify(userRepository).findByEmailIgnoreCase(loginRequest.getIdentifier());
+        verify(userRepository).findByEmail(loginRequest.getIdentifier());
         verify(passwordEncoder).matches(loginRequest.getPassword(), user.getPassword());
         verify(jwtTokenProvider, never()).generateToken(anyString());
     }
@@ -337,7 +337,7 @@ class AuthServiceTest {
         String plainPassword = registerRequest.getPassword();
         String encodedPassword = "bcrypt_encoded_password_hash";
 
-        when(userRepository.existsByEmailIgnoreCase(registerRequest.getEmail())).thenReturn(false);
+        when(userRepository.existsByEmail(registerRequest.getEmail())).thenReturn(false);
         when(userRepository.existsByPhone(registerRequest.getPhone())).thenReturn(false);
         when(passwordEncoder.encode(plainPassword)).thenReturn(encodedPassword);
         when(userRepository.save(any(User.class))).thenReturn(user);

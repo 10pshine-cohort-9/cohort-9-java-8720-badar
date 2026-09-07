@@ -155,6 +155,45 @@ class ContactServiceTest {
         verify(contactRepository).findByUserId(user.getId(), pageable);
     }
 
+    @Test
+    @DisplayName("Should reject negative page indexes")
+    void testGetAllContactsRejectsNegativePage() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> contactService.getAllContacts(user.getId(), null, -1, 10, "firstName", "asc"));
+
+        assertEquals("Page index must be >= 0", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("Should reject non-positive page sizes")
+    void testGetAllContactsRejectsInvalidPageSize() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> contactService.getAllContacts(user.getId(), null, 0, 0, "firstName", "asc"));
+
+        assertEquals("Page size must be greater than 0", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("Should reject unknown sort fields")
+    void testGetAllContactsRejectsUnknownSortField() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> contactService.getAllContacts(user.getId(), null, 0, 10, "unknownField", "asc"));
+
+        assertEquals("Invalid sort field. Allowed values: id, firstName, lastName, title", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("Should reject collection-valued sort fields for email and phone")
+    void testGetAllContactsRejectsCollectionSortFields() {
+        IllegalArgumentException emailException = assertThrows(IllegalArgumentException.class,
+                () -> contactService.getAllContacts(user.getId(), null, 0, 10, "email", "asc"));
+        IllegalArgumentException phoneException = assertThrows(IllegalArgumentException.class,
+                () -> contactService.getAllContacts(user.getId(), null, 0, 10, "phone", "asc"));
+
+        assertEquals("Invalid sort field. Allowed values: id, firstName, lastName, title", emailException.getMessage());
+        assertEquals("Invalid sort field. Allowed values: id, firstName, lastName, title", phoneException.getMessage());
+    }
+
     // ==================== Search Contacts Tests ====================
 
     @Test

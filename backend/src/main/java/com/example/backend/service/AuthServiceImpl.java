@@ -4,7 +4,6 @@ import com.example.backend.dto.*;
 import com.example.backend.entity.User;
 import com.example.backend.exception.BadRequestException;
 import com.example.backend.exception.DuplicateResourceException;
-import com.example.backend.exception.ResourceNotFoundException;
 import com.example.backend.exception.UnauthorizedException;
 import com.example.backend.repository.UserRepository;
 import com.example.backend.security.JwtTokenProvider;
@@ -26,7 +25,11 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByEmailIgnoreCase(request.getEmail())) {
+        boolean emailExists = userRepository.existsByEmail(request.getEmail());
+        if (!emailExists) {
+            emailExists = userRepository.existsByEmailIgnoreCase(request.getEmail());
+        }
+        if (emailExists) {
             log.warn("Duplicate registration attempt");
             throw new DuplicateResourceException("Email is already registered");
         }
@@ -45,13 +48,18 @@ public class AuthServiceImpl implements AuthService {
         user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
 
-        User savedUser = userRepository.save(user);
-    log.info("User registered successfully with id: {}", savedUser.getId());
+        try {
+            User savedUser = userRepository.save(user);
+            log.info("User registered successfully");
 
-        String token = jwtTokenProvider.generateToken(savedUser.getEmail());
+            String token = jwtTokenProvider.generateToken(savedUser.getEmail());
 
-        return new AuthResponse(token, savedUser.getId(), savedUser.getFirstName(),
-                savedUser.getLastName(), savedUser.getEmail());
+            return new AuthResponse(token, savedUser.getId(), savedUser.getFirstName(),
+                    savedUser.getLastName(), savedUser.getEmail());
+        } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+            log.warn("Email already registered during concurrent insert");
+            throw new DuplicateResourceException("Email is already registered");
+        }
     }
 
     @Override
@@ -59,25 +67,27 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse login(LoginRequest request) {
         String identifier = request.getIdentifier();
 
-        User user = userRepository.findByEmailIgnoreCase(identifier)
-                .orElseGet(() -> userRepository.findByPhone(identifier)
-                        .orElseThrow(() -> {
-                            log.warn("Failed login attempt: user not found");
-                            return new UnauthorizedException("Invalid credentials");
-                        }));
+        User user = userRepository.findByEmail(identifier)
+                .or(() -> userRepository.findByEmailIgnoreCase(identifier))
+                .or(() -> userRepository.findByPhone(identifier))
+                .orElseThrow(() -> {
+                    log.warn("Failed login attempt: user not found");
+                    return new UnauthorizedException("Invalid credentials");
+                });
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             log.warn("Failed login attempt: incorrect password");
             throw new UnauthorizedException("Invalid credentials");
         }
 
-        log.info("User logged in successfully with id: {}", user.getId());
+        log.info("User logged in successfully");
 
         String token = jwtTokenProvider.generateToken(user.getEmail());
 
         return new AuthResponse(token, user.getId(), user.getFirstName(),
                 user.getLastName(), user.getEmail());
     }
+
     @Override
     @Transactional
     public void changePassword(Long userId, ChangePasswordRequest request) {
@@ -98,3 +108,4 @@ public class AuthServiceImpl implements AuthService {
         log.info("Password changed successfully for user id: {}", userId);
     }
 }
+
